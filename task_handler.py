@@ -12,6 +12,15 @@ def make_residual_task_message(source_z, target_z, patch_bbox, mip):
   }
   return json.dumps(content)
 
+def make_render_task_message(z, patch_bbox, mip):
+  content = {
+      "type": "render_task",
+      "z": z,
+      "patch_bbox": patch_bbox.serialize(),
+      "mip": mip,
+  }
+  return json.dumps(content)
+
 class TaskHandler:
   def __init__(self, queue_name):
     # Get the service resource

@@ -9,7 +9,7 @@ import json
 from process import Process
 from util import crop, warp, upsample_flow, downsample_mip
 from boundingbox import BoundingBox, deserialize_bbox
-from task_handler import TaskHandler, make_residual_task_message
+from task_handler import TaskHandler, make_residual_task_message, make_render_task_message
 import data_handler
 
 class Aligner:
@@ -310,13 +310,22 @@ class Aligner:
     chunks = self.break_into_chunks(bbox, self.dst_chunk_sizes[mip],
                                     self.dst_voxel_offsets[mip], mip=mip, render=True)
 
-    #for patch_bbox in chunks:
-    def chunkwise(patch_bbox):
+    for patch_bbox in chunks:
+      if self.distributed:
+        render_task = make_render_task_message(z, patch_bbox, mip=mip)
+        self.task_handler.send_message(render_task)
+      else:
+        self.warp_patch(self.src_ng_path, z, patch_bbox, (mip, self.process_high_mip), mip)
+
+    #def chunkwise(patch_bbox):
       #print ("Rendering {} at mip {}".format(patch_bbox.__str__(mip=0), mip),
       #          end='', flush=True)
-      self.warp_patch(self.src_ng_path, z, patch_bbox, (mip, self.process_high_mip), mip)
+      #self.warp_patch(self.src_ng_path, z, patch_bbox, (mip, self.process_high_mip), mip)
 
-    self.pool.map(chunkwise, chunks)
+    #self.pool.map(chunkwise, chunks)
+    if self.distributed:
+      while not self.task_handler.is_empty():
+        sleep(1)
     end = time()
     print (": {} sec".format(end - start))
 
@@ -355,11 +364,11 @@ class Aligner:
         else:
           self.compute_residual_patch(source_z, target_z, patch_bbox, mip=m)
       #self.pool.map(chunkwise, chunks)
-      end = time()
-      print (": {} sec".format(end - start))
       if self.distributed:
         while not self.task_handler.is_empty():
           sleep(1)
+      end = time()
+      print (": {} sec".format(end - start))
       if m > self.process_low_mip:
         self.prepare_source(source_z, bbox, m - 1)
 
@@ -390,6 +399,12 @@ class Aligner:
     mip = message['mip']
     self.compute_residual_patch(source_z, target_z, patch_bbox, mip)
 
+  def handle_render_task(self, message):
+    z = message['z']
+    patch_bbox = deserialize_bbox(message['patch_bbox'])
+    mip = message['mip']
+    self.warp_patch(self.src_ng_path, z, patch_bbox, (mip, self.process_high_mip), mip)
+
   def handle_task_message(self, message):
     #message types:
     # -compute residual
@@ -403,6 +418,8 @@ class Aligner:
     task_type = body['type']
     if task_type == 'residual_task':
       self.handle_residual_task(body)
+    elif task_type == 'render_task':
+      self.handle_render_task(body)
     else:
       raise Exception("Unsupported task type '{}' received from queue '{}'".format(task_type,
                                                                  self.task_handler.queue_name))
