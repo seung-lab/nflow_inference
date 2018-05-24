@@ -1,0 +1,8 @@
+FROM ubuntu:16.04
+
+RUN apt-get update && apt-get upgrade
+RUN apt-get install -y python-pip3
+RUN pip3 install numpy pytorch pathos
+
+
+
