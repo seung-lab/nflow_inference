@@ -208,16 +208,22 @@ class Pyramid(nn.Module):
             I = torch.FloatTensor(I)
             I = torch.autograd.Variable(I, requires_grad=False)
             I = I.permute(0,2,3,1)
-            self.identities[dim] = I.cuda()
+            if self.gpu: 
+                self.identities[dim] = I.cuda()
+            else: 
+                self.identities[dim] = I
+
         return self.identities[dim]
 
-    def __init__(self, size, dim, skip, k, dilate=False, amp=False, unet=False, num_targets=1):
+    def __init__(self, size, dim, skip, k, dilate=False, amp=False, unet=False, num_targets=1, gpu=False):
         super(Pyramid, self).__init__()
         rdim = dim // (2 ** (size))
         print('------- Constructing PyramidNet with size', size, '(' + str(size-1) + ' downsamples)')
         self.identities = {}
+        self.gpu  = gpu 
         self.skip = skip
         self.size = size
+
         if dilate:
             if amp:
                 self.mlist = nn.ModuleList([AmpDG(k=k) for level in range(size)])
@@ -339,10 +345,14 @@ class EPyramid(nn.Module):
             I = torch.FloatTensor(I)
             I = torch.autograd.Variable(I, requires_grad=False)
             I = I.permute(0,2,3,1)
-            self.identities[dim] = I.cuda()
+            if self.gpu:
+                self.identities[dim] = I.cuda()
+            else: 
+                self.identities[dim] = I
+
         return self.identities[dim]
     
-    def __init__(self, size, dim, skip, k, dilate=False, amp=False, unet=False, num_targets=1, name=None):
+    def __init__(self, size, dim, skip, k, dilate=False, amp=False, unet=False, num_targets=1, name=None, gpu=False):
         super(EPyramid, self).__init__()
         dim=1280
         rdim = dim // (2 ** (size - 1))
@@ -350,6 +360,7 @@ class EPyramid(nn.Module):
         self.name = name
         fm = 6
         self.identities = {}
+        self.gpu  = gpu 
         self.skip = skip
         self.size = size
         self.mlist = nn.ModuleList([G(k=k, infm=fm*(level+2)*2) for level in range(size)])
@@ -380,9 +391,9 @@ class EPyramid(nn.Module):
         return field_so_far, residuals
 
 class PyramidTransformer(nn.Module):
-    def __init__(self, size=4, dim=192, skip=0, k=7, dilate=False, amp=False, unet=False, num_targets=1, name=None):
+    def __init__(self, size=4, dim=192, skip=0, k=7, dilate=False, amp=False, unet=False, num_targets=1, name=None, gpu=False):
         super(PyramidTransformer, self).__init__()
-        self.pyramid = EPyramid(size, dim, skip, k, dilate, amp, unet, num_targets, name=name)
+        self.pyramid = EPyramid(size, dim, skip, k, dilate, amp, unet, num_targets, name=name, gpu=gpu)
 
     def open_layer(self):
         if self.pyramid.skip > 0:
@@ -427,7 +438,7 @@ class PyramidTransformer(nn.Module):
         """
         assert archive_path is not None, "Must provide an archive"
 
-        model = PyramidTransformer(size=height, dim=dim, k=k, skip=skips, dilate=dilate, amp=amp, unet=unet, num_targets=num_targets, name=name)
+        model = PyramidTransformer(size=height, dim=dim, k=k, skip=skips, dilate=dilate, amp=amp, unet=unet, num_targets=num_targets, name=name, gpu=cuda)
         if cuda:
             model = model.cuda()
         for p in model.parameters():
@@ -435,7 +446,7 @@ class PyramidTransformer(nn.Module):
         model.train(False)
 
         print('Loading model state from', archive_path + '...')
-        model.load_state_dict(torch.load(archive_path))
+        model.load_state_dict(torch.load(archive_path, map_location=lambda storage, loc: storage))
 
         return model
 
