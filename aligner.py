@@ -16,7 +16,8 @@ class Aligner:
   def __init__(self, model_path, max_displacement, crop,
                mip_range, high_mip_chunk, src_ng_path, dst_ng_path,
                render_low_mip=2, render_high_mip=8, is_Xmas=False, threads = 10,
-               max_chunk = (1024, 1024), max_render_chunk = (2048*2, 2048*2), queue_name=None):
+               max_chunk = (1024, 1024), max_render_chunk = (2048*2, 2048*2),
+               queue_name=None, gpu=False):
 
     if queue_name != None:
       self.task_handler = TaskHandler(queue_name)
@@ -48,7 +49,7 @@ class Aligner:
     self.x_res_ng_paths = [os.path.join(r, 'x') for r in self.res_ng_paths]
     self.y_res_ng_paths = [os.path.join(r, 'y') for r in self.res_ng_paths]
 
-    self.net = Process(model_path, is_Xmas=is_Xmas, cuda=True)
+    self.net = Process(model_path, is_Xmas=is_Xmas, cuda=gpu)
 
     self.dst_chunk_sizes   = []
     self.dst_voxel_offsets = []
@@ -356,8 +357,9 @@ class Aligner:
       #self.pool.map(chunkwise, chunks)
       end = time()
       print (": {} sec".format(end - start))
-      while not self.task_handler.is_empty():
-        sleep(1)
+      if self.distributed:
+        while not self.task_handler.is_empty():
+          sleep(1)
       if m > self.process_low_mip:
         self.prepare_source(source_z, bbox, m - 1)
 

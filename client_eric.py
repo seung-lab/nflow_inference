@@ -1,17 +1,30 @@
-import sys
 from aligner import Aligner, BoundingBox
+from optparse import OptionParser
 
-model_name = sys.argv[1]
-out_name = sys.argv[2]
+parser = OptionParser()
+parser.add_option("-m", "--model", dest="model_name",
+		  help="model name", metavar="FILE")
+parser.add_option("-o", "--output_tag", dest="output_tag", default="")
+parser.add_option("-c", "--crop", dest="crop", type="int", default=128)
+parser.add_option("--max_disp", dest="max_disp", type="int", default=2048)
+parser.add_option("-p", "--patch_size", dest="patch_size", type="int", default=1024)
+parser.add_option("-q", "--queue_name", dest="queue_name", default=None)
+parser.add_option("--move_anchor", dest="move_anchor", default=False, action="store_true")
+parser.add_option("--gpu", dest="gpu", default=False, action="store_true")
 
-model_path = 'model_repository/' + model_name + '.pt'
-max_displacement = 2048
-net_crop  = 128
+(options, args) = parser.parse_args()
+
+model_path = 'model_repository/' + options.model_name + '.pt'
+max_displacement = options.max_disp
+net_crop  = options.crop
 mip_range = (3, 3)
-render_mip = 3
-high_mip_chunk = (1024, 1024)
+high_mip_chunk = (options.patch_size, options.patch_size)
 
-a = Aligner(model_path, max_displacement, net_crop, mip_range, high_mip_chunk, 'gs://neuroglancer/pinky40_alignment/prealigned_rechunked', 'gs://neuroglancer/nflow_tests/' + model_name+'_'+out_name)
+a = Aligner(model_path, max_displacement, net_crop, mip_range, high_mip_chunk,
+		'gs://neuroglancer/pinky40_alignment/prealigned_rechunked',
+		'gs://neuroglancer/nflow_tests/' + options.model_name + '_' + options.output_tag,
+		queue_name=options.queue_name,
+                gpu=options.gpu)
 
 v_off = (10240, 4096, 0)
 x_size = 57344
@@ -20,6 +33,6 @@ bbox = BoundingBox(v_off[0], v_off[0]+x_size, v_off[1], v_off[1]+y_size, mip=0, 
 
 stack_start = 18
 stack_size  = 30
-a.align_ng_stack(stack_start, stack_start+stack_size, bbox, move_anchor=True)
+a.align_ng_stack(stack_start, stack_start+stack_size, bbox, move_anchor=False)
 stack_start += stack_size
 a.align_ng_stack(stack_start, stack_start+stack_size, bbox, move_anchor=False)
