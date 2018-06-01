@@ -7,7 +7,7 @@ Large scale inference for EM images using neural networks
 ```python3 worker_distributed.py [options]```
 Options:
 
-* -f [--file_name] VALUE
+* -f [--file_name] VALUE -- params file path. If the file name is given, the consequent command line arguments will be ignored and their values will be expected to be found in the params file in JSON format.
 * -m [--model_name] VALUE
 * -c [--crop] VALUE
 * -p [--patch_size] VALUE
@@ -21,7 +21,7 @@ Options:
 * --stack_start VALUE
 * --stack_end VALUE
 * --move_anchor -- a bolean flag setting weather the first frame has to be moved from source to destination.
-* --gpu . -- a bolean flag setting weather the computation is to be done on a GPU.
+* --gpu  -- a bolean flag setting weather the computation is to be done on a GPU.
 
 
 
