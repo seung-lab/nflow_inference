@@ -27,6 +27,6 @@ Options:
 
 
 ## Worker 
-```python3 worker_distributed.py [options]```
+```python3 client.py [options]```
 where the options have to match options used for the Master `client.py`
 
