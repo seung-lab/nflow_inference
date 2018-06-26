@@ -9,7 +9,7 @@ import json
 from process import Process
 from util import crop, warp, upsample_flow, downsample_mip
 from boundingbox import BoundingBox, deserialize_bbox
-from task_handler import TaskHandler, make_residual_task_message, make_render_task_message
+from task_handler import TaskHandler, make_residual_task_message, make_render_task_message, make_copy_task_message, make_downsample_task_message
 import data_handler
 
 class Aligner:
@@ -25,7 +25,7 @@ class Aligner:
     else:
       self.task_handler = None
       self.distributed  = False
-
+    self.threads = 10
     self.process_high_mip = mip_range[1]
     self.process_low_mip  = mip_range[0]
     self.render_low_mip  = render_low_mip
@@ -279,11 +279,23 @@ class Aligner:
     chunks = self.break_into_chunks(bbox, self.dst_chunk_sizes[mip],
                                     self.dst_voxel_offsets[mip], mip=mip, render=True)
     #for patch_bbox in chunks:
-    def chunkwise(patch_bbox):
-      raw_patch = data_handler.get_image_data(source, z, patch_bbox, mip)
-      data_handler.save_image_patch(dest, raw_patch, z, patch_bbox, mip)
+    if self.distributed and len(chunks) > self.threads * 2:
+      for i in range(0, len(chunks), self.threads):
+        task_patches = []
+        for j in range(i, min(len(chunks), i + self.threads)):
+          task_patches.append(chunks[j])
 
-    self.pool.map(chunkwise, chunks)
+        copy_task = make_copy_task_message(z, source, dest, task_patches, mip=mip)
+        self.task_handler.send_message(copy_task)
+
+      while not self.task_handler.is_empty():
+        sleep(1)
+    else:
+      def chunkwise(patch_bbox):
+        raw_patch = data_handler.get_image_data(source, z, patch_bbox, mip)
+        data_handler.save_image_patch(dest, raw_patch, z, patch_bbox, mip)
+
+      self.pool.map(chunkwise, chunks)
 
     end = time()
     print (": {} sec".format(end - start))
@@ -310,22 +322,24 @@ class Aligner:
     chunks = self.break_into_chunks(bbox, self.dst_chunk_sizes[mip],
                                     self.dst_voxel_offsets[mip], mip=mip, render=True)
 
-    for patch_bbox in chunks:
-      if self.distributed:
-        render_task = make_render_task_message(z, patch_bbox, mip=mip)
-        self.task_handler.send_message(render_task)
-      else:
-        self.warp_patch(self.src_ng_path, z, patch_bbox, (mip, self.process_high_mip), mip)
-
-    #def chunkwise(patch_bbox):
-      #print ("Rendering {} at mip {}".format(patch_bbox.__str__(mip=0), mip),
-      #          end='', flush=True)
-      #self.warp_patch(self.src_ng_path, z, patch_bbox, (mip, self.process_high_mip), mip)
-
-    #self.pool.map(chunkwise, chunks)
     if self.distributed:
+      for i in range(0, len(chunks), self.threads):
+        task_patches = []
+        for j in range(i, min(len(chunks), i + self.threads)):
+          task_patches.append(chunks[j])
+
+        render_task = make_render_task_message(z, task_patches, mip=mip)
+        self.task_handler.send_message(render_task)
+
       while not self.task_handler.is_empty():
         sleep(1)
+    else:
+      def chunkwise(patch_bbox):
+        print ("Rendering {} at mip {}".format(patch_bbox.__str__(mip=0), mip),
+                end='', flush=True)
+        self.warp_patch(self.src_ng_path, z, patch_bbox, (mip, self.process_high_mip), mip)
+      self.pool.map(chunkwise, chunks)
+
     end = time()
     print (": {} sec".format(end - start))
 
@@ -338,15 +352,32 @@ class Aligner:
 
   def downsample(self, z, bbox, source_mip, target_mip):
     for m in range(source_mip+1, target_mip + 1):
+      print ("Downsampleing mip {}: ".format(m),
+              end='', flush=True)
+      start = time()
       chunks = self.break_into_chunks(bbox, self.dst_chunk_sizes[m],
                                       self.dst_voxel_offsets[m], mip=m, render=True)
 
       #for patch_bbox in chunks:
-      def chunkwise(patch_bbox):
-        print ("Downsampling {} to mip {}".format(patch_bbox.__str__(mip=0), m))
-        downsampled_patch = self.downsample_patch(self.dst_ng_path, z, patch_bbox, m)
-        data_handler.save_image_patch(self.dst_ng_path, downsampled_patch, z, patch_bbox, m)
-      self.pool.map(chunkwise, chunks)
+      if self.distributed and len(chunks) > self.threads * 2:
+        for i in range(0, len(chunks), self.threads):
+          task_patches = []
+          for j in range(i, min(len(chunks), i + self.threads)):
+            task_patches.append(chunks[j])
+
+          downsample_task = make_downsample_task_message(z, task_patches, mip=m)
+          self.task_handler.send_message(downsample_task)
+
+        while not self.task_handler.is_empty():
+          sleep(1)
+      else:
+        def chunkwise(patch_bbox):
+          print ("Downsampling {} to mip {}".format(patch_bbox.__str__(mip=0), m))
+          downsampled_patch = self.downsample_patch(self.dst_ng_path, z, patch_bbox, m)
+          data_handler.save_image_patch(self.dst_ng_path, downsampled_patch, z, patch_bbox, m)
+        self.pool.map(chunkwise, chunks)
+      end = time()
+      print (": {} sec".format(end - start))
 
   def compute_section_pair_residuals(self, source_z, target_z, bbox):
     for m in range(self.process_high_mip,  self.process_low_mip - 1, -1):
@@ -401,9 +432,33 @@ class Aligner:
 
   def handle_render_task(self, message):
     z = message['z']
-    patch_bbox = deserialize_bbox(message['patch_bbox'])
+    patches  = [deserialize_bbox(p) for p in message['patches']]
     mip = message['mip']
-    self.warp_patch(self.src_ng_path, z, patch_bbox, (mip, self.process_high_mip), mip)
+    def chunkwise(patch_bbox):
+      print ("Rendering {} at mip {}".format(patch_bbox.__str__(mip=0), mip),
+              end='', flush=True)
+      self.warp_patch(self.src_ng_path, z, patch_bbox, (mip, self.process_high_mip), mip)
+    self.pool.map(chunkwise, patches)
+
+  def handle_copy_task(self, message):
+    z = message['z']
+    patches  = [deserialize_bbox(p) for p in message['patches']]
+    mip = message['mip']
+    source = message['source']
+    dest = message['dest']
+    def chunkwise(patch_bbox):
+      raw_patch = data_handler.get_image_data(source, z, patch_bbox, mip)
+      data_handler.save_image_patch(dest, raw_patch, z, patch_bbox, mip)
+    self.pool.map(chunkwise, patches)
+
+  def handle_downsample_task(self, message):
+    z = message['z']
+    patches  = [deserialize_bbox(p) for p in message['patches']]
+    mip = message['mip']
+    def chunkwise(patch_bbox):
+      downsampled_patch = self.downsample_patch(self.dst_ng_path, z, patch_bbox, mip)
+      data_handler.save_image_patch(self.dst_ng_path, downsampled_patch, z, patch_bbox, mip)
+    self.pool.map(chunkwise, patches)
 
   def handle_task_message(self, message):
     #message types:
@@ -420,6 +475,10 @@ class Aligner:
       self.handle_residual_task(body)
     elif task_type == 'render_task':
       self.handle_render_task(body)
+    elif task_type == 'copy_task':
+      self.handle_copy_task(body)
+    elif task_type == 'downsample_task':
+      self.handle_downsample_task(body)
     else:
       raise Exception("Unsupported task type '{}' received from queue '{}'".format(task_type,
                                                                  self.task_handler.queue_name))

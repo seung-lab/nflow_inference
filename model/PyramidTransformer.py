@@ -6,6 +6,8 @@ from torch.nn.functional import grid_sample
 import numpy as np
 import random
 
+torch.set_num_threads(50)
+
 class Dense(nn.Module):
     def __init__(self, k=7, layers=4, fm=32, outfm=None, f=nn.ReLU(inplace=True)):
         super(Dense, self).__init__()
@@ -65,7 +67,7 @@ class G(nn.Module):
         self.initc(self.conv3)
         self.initc(self.conv4)
         self.initc(self.conv5)
-        
+
     def forward(self, x):
         return self.seq(x).permute(0,2,3,1) / 10
 
@@ -127,7 +129,7 @@ class DeepG(nn.Module):
 class DConv(nn.Module):
     def __init__(self, infm, outfm, k, padding, dilation=1, groups=1, f=nn.ReLU(inplace=True)):
         assert infm == outfm
-        
+
         super(DConv, self).__init__()
         self.f = f
         self.conv = nn.Conv2d(infm, outfm, k, padding=padding, groups=groups, dilation=dilation)
@@ -136,7 +138,7 @@ class DConv(nn.Module):
             weights[i,i,k//2,k//2] = 1
         self.conv.weight = nn.Parameter(weights)
         self.conv.bias.data /= 10
-        
+
     def forward(self, x):
         return self.f(self.conv(x))
 
@@ -144,7 +146,7 @@ if __name__ == '__main__':
     x = Variable(torch.zeros((1,4,100,100)))
     conv = DConv(4, 4, 3, 1)
     print(conv(x).size())
-    
+
 class DG(nn.Module):
     def __init__(self, k=3, f=nn.ReLU(), t=1):
         super(DG, self).__init__()
@@ -198,7 +200,7 @@ class DG(nn.Module):
             idd = 'vis' + str(random.randint(0,100)) + '_'
             gif(idd + '8', np.squeeze(out.data.cpu().numpy()) * 255)
         return out.permute(0,2,3,1)
-    
+
 class Pyramid(nn.Module):
     def get_identity_grid(self, dim):
         if dim not in self.identities:
@@ -208,9 +210,9 @@ class Pyramid(nn.Module):
             I = torch.FloatTensor(I)
             I = torch.autograd.Variable(I, requires_grad=False)
             I = I.permute(0,2,3,1)
-            if self.gpu: 
+            if self.gpu:
                 self.identities[dim] = I.cuda()
-            else: 
+            else:
                 self.identities[dim] = I
 
         return self.identities[dim]
@@ -220,7 +222,7 @@ class Pyramid(nn.Module):
         rdim = dim // (2 ** (size))
         print('------- Constructing PyramidNet with size', size, '(' + str(size-1) + ' downsamples)')
         self.identities = {}
-        self.gpu  = gpu 
+        self.gpu  = gpu
         self.skip = skip
         self.size = size
 
@@ -294,13 +296,13 @@ class Dec(nn.Module):
         self.c2 = nn.Conv2d(fm, fm if not bottom else 1, 3, padding=1)
         self.initw(self.c1)
         self.initw(self.c2)
-        
+
     def forward(self, x):
         out = torch.cat((self.f(self.c1(x[:,0:x.size(1)//2])), self.f(self.c1(x[:,x.size(1)//2:]))), 1)
         f = (lambda x: x) if self.bottom else self.f
         out = torch.cat((f(self.c2(out[:,0:out.size(1)//2])), f(self.c2(out[:,out.size(1)//2:]))), 1)
         return out
-        
+
 class Enc(nn.Module):
     def initw(self, m):
         k = m.weight.size(2)
@@ -335,7 +337,7 @@ class Enc(nn.Module):
         out1 = torch.cat((self.f(self.c1(x[:,0:x.size(1)//2])), self.f(self.c1(x[:,x.size(1)//2:]))), 1)
         out2 = torch.cat((self.f(self.c2(out1[:,0:out1.size(1)//2])), self.f(self.c2(out1[:,out1.size(1)//2:]))), 1)
         return out2
-    
+
 class EPyramid(nn.Module):
     def get_identity_grid(self, dim):
         if dim not in self.identities:
@@ -347,11 +349,11 @@ class EPyramid(nn.Module):
             I = I.permute(0,2,3,1)
             if self.gpu:
                 self.identities[dim] = I.cuda()
-            else: 
+            else:
                 self.identities[dim] = I
 
         return self.identities[dim]
-    
+
     def __init__(self, size, dim, skip, k, dilate=False, amp=False, unet=False, num_targets=1, name=None, gpu=False):
         super(EPyramid, self).__init__()
         dim=1280
@@ -360,7 +362,7 @@ class EPyramid(nn.Module):
         self.name = name
         fm = 6
         self.identities = {}
-        self.gpu  = gpu 
+        self.gpu  = gpu
         self.skip = skip
         self.size = size
         self.mlist = nn.ModuleList([G(k=k, infm=fm*(level+2)*2) for level in range(size)])
@@ -370,7 +372,7 @@ class EPyramid(nn.Module):
         self.I = self.get_identity_grid(rdim)
         self.Zero = self.I - self.I
         self.counter = 0
-        
+
     def forward(self, stack, target_level, vis=False):
         encodings = [self.enclist[0](stack)]
         for idx in range(1, self.size):
@@ -387,7 +389,7 @@ class EPyramid(nn.Module):
             field_so_far = rfield + field_so_far
             if i != target_level:
                 field_so_far = self.up(field_so_far.permute(0,3,1,2)).permute(0,2,3,1)
-            
+
         return field_so_far, residuals
 
 class PyramidTransformer(nn.Module):
