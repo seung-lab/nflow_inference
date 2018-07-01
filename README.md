@@ -27,14 +27,20 @@ Specifying the parameter file is the prefered method of operating. Example param
 ## Usage
 ### Single Machine
 Example:
-```python3 client.py -f example_params_gpu.json```
+```bash
+python3 client.py -f example_params_gpu.json
+```
 ### Distributed
 Before runing distributed version, you'll need to set up your AWS secrets. AWS and Google secrets are not included in Dockers or the repo for security reasons. Get in touch with me if you're not sure how to do it.
 
 After your secrets are set up, you can run the following to generate tasks and push them to the queue:
-```python3 client.py -f example_params_gpu_distributed.json```
+```bash
+python3 client.py -f example_params_gpu_distributed.json
+```
 
 Then, on as many machines (you have to set up the secrets on those machines) as you want, run:
-```python3 worker_distributed.py -f example_params_gpu_distributed.json```
+```bash
+python3 worker_distributed.py -f example_params_gpu_distributed.json
+```
 
 
