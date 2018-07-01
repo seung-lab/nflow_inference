@@ -1,2 +1,2 @@
 #!/bin/bash
-docker run -it seunglab/nflow_inference:worker_gpu bash
+docker run -it seunglab/nflow_inference:gpu bash
