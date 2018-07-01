@@ -42,5 +42,7 @@ Then, on as many machines (you have to set up the secrets on those machines) as 
 ```bash
 python3 worker_distributed.py -f example_params_gpu_distributed.json
 ```
+## Troubleshooting
+We use Amazon SQS for task management. You can use the default 'deepalign' queue, or create a custom queue. **Note that you should flush your queues if you want to restart and exeriment.**
 
 
